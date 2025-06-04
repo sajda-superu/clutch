@@ -1,0 +1,45 @@
+# Clutch.co Profile Sitemaps Master List
+# Extracted from clutch_sitemap.xml
+# Total: 40 profile sitemap files
+# Use this list with: python bulk_sitemap_processor.py --batch clutch_profile_sitemaps_master_list.txt
+
+https://clutch.co/sitemap-profile-1.xml
+https://clutch.co/sitemap-profile-2.xml
+https://clutch.co/sitemap-profile-3.xml
+https://clutch.co/sitemap-profile-4.xml
+https://clutch.co/sitemap-profile-5.xml
+https://clutch.co/sitemap-profile-6.xml
+https://clutch.co/sitemap-profile-7.xml
+https://clutch.co/sitemap-profile-8.xml
+https://clutch.co/sitemap-profile-9.xml
+https://clutch.co/sitemap-profile-10.xml
+https://clutch.co/sitemap-profile-11.xml
+https://clutch.co/sitemap-profile-12.xml
+https://clutch.co/sitemap-profile-13.xml
+https://clutch.co/sitemap-profile-14.xml
+https://clutch.co/sitemap-profile-15.xml
+https://clutch.co/sitemap-profile-16.xml
+https://clutch.co/sitemap-profile-17.xml
+https://clutch.co/sitemap-profile-18.xml
+https://clutch.co/sitemap-profile-19.xml
+https://clutch.co/sitemap-profile-20.xml
+https://clutch.co/sitemap-profile-21.xml
+https://clutch.co/sitemap-profile-22.xml
+https://clutch.co/sitemap-profile-23.xml
+https://clutch.co/sitemap-profile-24.xml
+https://clutch.co/sitemap-profile-25.xml
+https://clutch.co/sitemap-profile-26.xml
+https://clutch.co/sitemap-profile-27.xml
+https://clutch.co/sitemap-profile-28.xml
+https://clutch.co/sitemap-profile-29.xml
+https://clutch.co/sitemap-profile-30.xml
+https://clutch.co/sitemap-profile-31.xml
+https://clutch.co/sitemap-profile-32.xml
+https://clutch.co/sitemap-profile-33.xml
+https://clutch.co/sitemap-profile-34.xml
+https://clutch.co/sitemap-profile-35.xml
+https://clutch.co/sitemap-profile-36.xml
+https://clutch.co/sitemap-profile-37.xml
+https://clutch.co/sitemap-profile-38.xml
+https://clutch.co/sitemap-profile-39.xml
+https://clutch.co/sitemap-profile-40.xml 

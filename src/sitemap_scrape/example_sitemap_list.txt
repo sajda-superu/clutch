@@ -1,0 +1,12 @@
+# Example sitemap list file
+# Lines starting with # are comments
+# Put one sitemap URL per line
+
+# Clutch.co profile sitemaps
+https://clutch.co/sitemap-profile-1.xml
+https://clutch.co/sitemap-profile-2.xml
+https://clutch.co/sitemap-profile-3.xml
+
+# Add more sitemap URLs here
+# https://example.com/sitemap.xml
+# https://another-site.com/sitemap.xml
