@@ -31,17 +31,19 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import logging
+import random
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class ClutchProfileScraper:
-    def __init__(self, use_selenium=True, headless=True):
+    def __init__(self, use_selenium=True, headless=True, output_file=None):
         self.use_selenium = use_selenium
         self.headless = headless
         self.session = None
         self.driver = None
+        self.current_output_file = output_file
         
         if use_selenium:
             self.setup_selenium()
@@ -52,13 +54,26 @@ class ClutchProfileScraper:
         """Setup Selenium WebDriver for handling JavaScript and anti-bot measures"""
         chrome_options = Options()
         if self.headless:
-            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
         
         try:
             self.driver = webdriver.Chrome(options=chrome_options)
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            # Add additional browser fingerprinting evasion
+            self.driver.execute_script("""
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+            """)
             logger.info("Selenium WebDriver initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Selenium: {e}")
@@ -85,11 +100,28 @@ class ClutchProfileScraper:
             if self.use_selenium and self.driver:
                 logger.info(f"Fetching {url} with Selenium...")
                 self.driver.get(url)
-                # Wait for page to load
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-                return self.driver.page_source
+                # Add random mouse movements and scrolling
+                self.driver.execute_script(f"window.scrollTo(0, {random.randint(100, 500)});")
+                time.sleep(random.uniform(1, 2))
+                
+                # Wait for specific elements that indicate the page has loaded properly
+                try:
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "h1, h2, .company-name, .profile-header"))
+                    )
+                    # Add a small random delay to mimic human behavior
+                    time.sleep(2 + random.random() * 2)
+                    
+                    # Scroll down slowly
+                    total_height = self.driver.execute_script("return document.body.scrollHeight")
+                    for i in range(0, total_height, random.randint(100, 200)):
+                        self.driver.execute_script(f"window.scrollTo(0, {i});")
+                        time.sleep(random.uniform(0.1, 0.3))
+                    
+                    return self.driver.page_source
+                except TimeoutException:
+                    logger.warning(f"Timeout waiting for page elements at {url}")
+                    return self.driver.page_source
             else:
                 logger.info(f"Fetching {url} with requests...")
                 response = self.session.get(url, timeout=30)
@@ -122,15 +154,46 @@ class ClutchProfileScraper:
         }
         
         try:
-            # Company name
-            name_elem = soup.find('h1') or soup.find('h2')
-            if name_elem:
-                company_data['company_name'] = name_elem.get_text(strip=True)
+            # Company name - try multiple selectors
+            name_selectors = [
+                'h1.company-name',
+                'h1.profile-name',
+                'h1.header-company-title',
+                'h1',
+                '.company-name',
+                '.profile-name',
+                '.header-company-title'
+            ]
+            
+            for selector in name_selectors:
+                name_elem = soup.select_one(selector)
+                if name_elem and name_elem.get_text(strip=True) and name_elem.get_text(strip=True) != 'clutch.co':
+                    company_data['company_name'] = name_elem.get_text(strip=True)
+                    break
+            
+            # If no company name found, try to extract from URL
+            if not company_data['company_name'] or company_data['company_name'] == 'clutch.co':
+                url_parts = url.split('/')
+                if len(url_parts) > 0:
+                    company_name = url_parts[-1].replace('-', ' ').title()
+                    company_data['company_name'] = company_name
             
             # Tagline/Description
-            tagline_elem = soup.find('h2', {'class': re.compile(r'tagline|subtitle|description')})
-            if tagline_elem:
-                company_data['tagline'] = tagline_elem.get_text(strip=True)
+            tagline_selectors = [
+                'h2.tagline',
+                'h2.subtitle',
+                'h2.description',
+                '.tagline',
+                '.subtitle',
+                '.description',
+                '.company-description'
+            ]
+            
+            for selector in tagline_selectors:
+                tagline_elem = soup.select_one(selector)
+                if tagline_elem:
+                    company_data['tagline'] = tagline_elem.get_text(strip=True)
+                    break
             
             # Main description
             desc_selectors = [
@@ -138,8 +201,10 @@ class ClutchProfileScraper:
                 'div[class*="about"]',
                 'p[class*="description"]',
                 '.company-description',
-                '.profile-description'
+                '.profile-description',
+                '.about-company'
             ]
+            
             for selector in desc_selectors:
                 desc_elem = soup.select_one(selector)
                 if desc_elem:
@@ -147,18 +212,40 @@ class ClutchProfileScraper:
                     break
             
             # Reviews
-            reviews_text = soup.get_text()
-            review_match = re.search(r'(\d+)\s*review', reviews_text, re.IGNORECASE)
-            if review_match:
-                company_data['reviews_count'] = int(review_match.group(1))
+            reviews_selectors = [
+                '.reviews-count',
+                '.review-count',
+                '.rating-count',
+                '[class*="review"]',
+                '[class*="rating"]'
+            ]
             
-            # Rating (look for star ratings)
-            rating_elem = soup.find(attrs={'class': re.compile(r'rating|stars')})
-            if rating_elem:
-                rating_text = rating_elem.get_text()
-                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-                if rating_match:
-                    company_data['reviews_rating'] = float(rating_match.group(1))
+            for selector in reviews_selectors:
+                reviews_elem = soup.select_one(selector)
+                if reviews_elem:
+                    reviews_text = reviews_elem.get_text()
+                    review_match = re.search(r'(\d+)\s*review', reviews_text, re.IGNORECASE)
+                    if review_match:
+                        company_data['reviews_count'] = int(review_match.group(1))
+                        break
+            
+            # Rating
+            rating_selectors = [
+                '.rating',
+                '.stars',
+                '.review-rating',
+                '[class*="rating"]',
+                '[class*="stars"]'
+            ]
+            
+            for selector in rating_selectors:
+                rating_elem = soup.select_one(selector)
+                if rating_elem:
+                    rating_text = rating_elem.get_text()
+                    rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+                    if rating_match:
+                        company_data['reviews_rating'] = float(rating_match.group(1))
+                        break
             
             # Project size, hourly rate, employees, etc.
             self._extract_company_stats(soup, company_data)
@@ -167,15 +254,18 @@ class ClutchProfileScraper:
             company_data['services'] = self._extract_services(soup)
             
             # Location
-            location_patterns = [
-                r'([A-Za-z\s]+,\s*[A-Za-z\s]+)',  # City, Country
-                r'([A-Za-z\s]+,\s*[A-Z]{2})',     # City, State
+            location_selectors = [
+                '.location',
+                '.address',
+                '.company-location',
+                '[class*="location"]',
+                '[class*="address"]'
             ]
-            page_text = soup.get_text()
-            for pattern in location_patterns:
-                location_match = re.search(pattern, page_text)
-                if location_match:
-                    company_data['location'] = location_match.group(1).strip()
+            
+            for selector in location_selectors:
+                location_elem = soup.select_one(selector)
+                if location_elem:
+                    company_data['location'] = location_elem.get_text(strip=True)
                     break
             
             # Contact and social media
@@ -304,51 +394,57 @@ class ClutchProfileScraper:
     def scrape_multiple_profiles(self, urls: List[str], delay: float = 2.0) -> List[Dict]:
         """Scrape multiple profiles with delay between requests"""
         results = []
+        total = len(urls)
+        
+        # Load existing results if file exists
+        if os.path.exists(self.current_output_file):
+            try:
+                with open(self.current_output_file, 'r', encoding='utf-8') as f:
+                    results = json.load(f)
+                logger.info(f"Loaded {len(results)} existing results from {self.current_output_file}")
+            except Exception as e:
+                logger.error(f"Error loading existing results: {e}")
         
         for i, url in enumerate(urls, 1):
-            logger.info(f"Processing profile {i}/{len(urls)}: {url}")
+            logger.info(f"Processing profile {i}/{total}: {url}")
             
-            result = self.scrape_profile(url)
-            results.append(result)
+            # Skip if URL already processed
+            if any(r.get('url') == url for r in results):
+                logger.info(f"Skipping already processed URL: {url}")
+                continue
+                
+            try:
+                result = self.scrape_profile(url)
+                if result:
+                    results.append(result)
+                    # Save immediately after each successful scrape
+                    self.save_results(results, self.current_output_file)
+                    logger.info(f"Saved data for {result.get('company_name', url)}")
+            except Exception as e:
+                logger.error(f"Error processing {url}: {e}")
             
-            # Add delay between requests
-            if i < len(urls):
+            if i < total:
                 logger.info(f"Waiting {delay} seconds before next request...")
                 time.sleep(delay)
         
         return results
     
     def save_results(self, results: List[Dict], output_file: str):
-        """Save results to JSON or CSV file"""
-        if not results:
-            logger.warning("No results to save")
-            return
-        
-        file_ext = os.path.splitext(output_file)[1].lower()
-        
-        if file_ext == '.json':
+        """Save results to JSON file"""
+        try:
+            # Store the output file path for incremental saving
+            self.current_output_file = output_file
+            
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            # Save with pretty formatting
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(results, f, indent=2, ensure_ascii=False)
-        elif file_ext == '.csv':
-            # Flatten the data for CSV
-            fieldnames = set()
-            for result in results:
-                fieldnames.update(result.keys())
             
-            with open(output_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=list(fieldnames))
-                writer.writeheader()
-                for result in results:
-                    # Convert complex fields to strings
-                    flattened = {}
-                    for key, value in result.items():
-                        if isinstance(value, (dict, list)):
-                            flattened[key] = json.dumps(value)
-                        else:
-                            flattened[key] = value
-                    writer.writerow(flattened)
-        
-        logger.info(f"Results saved to: {output_file}")
+            logger.info(f"Results saved to: {output_file}")
+        except Exception as e:
+            logger.error(f"Error saving results: {e}")
     
     def __del__(self):
         """Clean up resources"""
@@ -359,55 +455,58 @@ class ClutchProfileScraper:
                 pass
 
 def main():
-    parser = argparse.ArgumentParser(description="Scrape Clutch.co company profiles")
-    parser.add_argument('--url', help='Single profile URL to scrape')
+    parser = argparse.ArgumentParser(description='Scrape Clutch.co company profiles')
+    parser.add_argument('--url', help='Single URL to scrape')
     parser.add_argument('--batch-file', help='File containing list of URLs to scrape')
-    parser.add_argument('--output', default='clutch_profiles.json', help='Output file (JSON or CSV)')
-    parser.add_argument('--delay', type=float, default=2.0, help='Delay between requests (seconds)')
-    parser.add_argument('--no-selenium', action='store_true', help='Use requests instead of Selenium')
-    parser.add_argument('--sample-size', type=int, help='Limit number of profiles to scrape (for testing)')
-    
+    parser.add_argument('--output', help='Output file path (JSON or CSV)')
+    parser.add_argument('--delay', type=float, default=2.0, help='Delay between requests in seconds')
+    parser.add_argument('--no-selenium', action='store_true', help='Disable Selenium (use requests instead)')
+    parser.add_argument('--no-headless', action='store_true', help='Disable headless mode for Selenium')
+    parser.add_argument('--batch-size', type=int, default=100, help='Number of URLs to process in each batch')
     args = parser.parse_args()
-    
-    # Initialize scraper
-    scraper = ClutchProfileScraper(use_selenium=not args.no_selenium)
-    
+
+    if not args.url and not args.batch_file:
+        parser.error("Either --url or --batch-file must be provided")
+
+    if not args.output:
+        parser.error("--output file path must be provided")
+
+    # Initialize scraper with output file
+    scraper = ClutchProfileScraper(
+        use_selenium=not args.no_selenium,
+        headless=not args.no_headless,
+        output_file=args.output
+    )
+
     try:
         if args.url:
-            # Single URL
             result = scraper.scrape_profile(args.url)
-            scraper.save_results([result], args.output)
+            if result:
+                scraper.save_results([result], args.output)
+        else:
+            with open(args.batch_file, 'r') as f:
+                all_urls = [line.strip() for line in f if line.strip()]
             
-        elif args.batch_file:
-            # Multiple URLs from file
-            try:
-                with open(args.batch_file, 'r', encoding='utf-8') as f:
-                    urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            # Process URLs in batches
+            total_urls = len(all_urls)
+            for i in range(0, total_urls, args.batch_size):
+                batch_urls = all_urls[i:i + args.batch_size]
+                logger.info(f"Processing batch {i//args.batch_size + 1} of {(total_urls + args.batch_size - 1)//args.batch_size}")
+                logger.info(f"URLs {i+1} to {min(i+args.batch_size, total_urls)} of {total_urls}")
                 
-                # Limit sample size if specified
-                if args.sample_size:
-                    urls = urls[:args.sample_size]
-                    logger.info(f"Limited to {args.sample_size} profiles for testing")
-                
-                results = scraper.scrape_multiple_profiles(urls, delay=args.delay)
+                results = scraper.scrape_multiple_profiles(batch_urls, delay=args.delay)
                 scraper.save_results(results, args.output)
                 
-            except FileNotFoundError:
-                logger.error(f"File not found: {args.batch_file}")
-        else:
-            # Demo with sample URL
-            sample_url = "https://clutch.co/profile/100-shapes"
-            logger.info(f"Demo mode: scraping {sample_url}")
-            result = scraper.scrape_profile(sample_url)
-            scraper.save_results([result], 'demo_profile.json')
-            
-    except KeyboardInterrupt:
-        logger.info("Scraping interrupted by user")
+                # Add a longer delay between batches
+                if i + args.batch_size < total_urls:
+                    delay = 10  # 10 seconds between batches
+                    logger.info(f"Batch completed. Waiting {delay} seconds before next batch...")
+                    time.sleep(delay)
     except Exception as e:
         logger.error(f"Error during scraping: {e}")
     finally:
-        # Cleanup
-        del scraper
+        if scraper.driver:
+            scraper.driver.quit()
 
 if __name__ == "__main__":
     main() 
